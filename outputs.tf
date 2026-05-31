@@ -10,7 +10,7 @@ output "app_url" {
 
 output "ssh_app" {
   description = "SSH command for the app VM"
-  value       = "ssh ${data.azurerm_key_vault_secret.admin_username.value}@${azurerm_public_ip.app.ip_address}"
+  value       = "ssh ivansto@${azurerm_public_ip.app.ip_address}"
 }
 
 output "entra_redirect_uri" {
@@ -25,7 +25,7 @@ output "dns_instruction" {
 
 output "setup_log" {
   description = "Monitor VM setup progress"
-  value       = "ssh ${data.azurerm_key_vault_secret.admin_username.value}@${azurerm_public_ip.app.ip_address} 'tail -f /var/log/app-setup.log'"
+  value       = "ssh ivansto@${azurerm_public_ip.app.ip_address} 'tail -f /var/log/app-setup.log'"
 }
 
 output "ACTION_REQUIRED" {
@@ -39,10 +39,10 @@ output "ACTION_REQUIRED" {
        https://${var.domain}/auth/callback
 
     3. Monitor VM setup (waits for DNS, then runs certbot):
-       ssh ${data.azurerm_key_vault_secret.admin_username.value}@${azurerm_public_ip.app.ip_address} 'tail -f /var/log/app-setup.log'
+       ssh ivansto@${azurerm_public_ip.app.ip_address} 'tail -f /var/log/app-setup.log'
 
     4. Import question data (after setup complete):
-       ssh ${data.azurerm_key_vault_secret.admin_username.value}@${azurerm_public_ip.app.ip_address}
+       ssh ivansto@${azurerm_public_ip.app.ip_address}
        cd /opt/quiz-app && source venv/bin/activate
        for f in data/english/*.json data/french/*.json data/defender_pam/*.json; do
            python utils/import_questions.py "$f"
