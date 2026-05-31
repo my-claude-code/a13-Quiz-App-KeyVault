@@ -7,7 +7,9 @@ while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 2; done
 
 echo "==> Installing system packages..."
 DEBIAN_FRONTEND=noninteractive apt-get update -y
-DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip python3-venv nginx git curl
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    python3 python3-pip python3-venv nginx git curl \
+    certbot python3-certbot-nginx
 
 echo "==> Cloning app from GitHub..."
 git clone ${github_repo} /opt/quiz-app
@@ -66,57 +68,19 @@ systemctl daemon-reload
 systemctl enable quiz-app
 systemctl start quiz-app
 
-echo "==> Pulling TLS certificate and key from Key Vault..."
-KV_NAME="${kv_name}"
-
-# Get access token using VM managed identity
-ACCESS_TOKEN=$(curl -sf \
-  -H "Metadata: true" \
-  "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-
-# Pull TLS certificate
-curl -sf \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  "https://$KV_NAME.vault.azure.net/secrets/quiz-tls-cert?api-version=7.4" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])" \
-  > /etc/ssl/certs/quiz-app.crt
-
-# Pull TLS private key
-curl -sf \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  "https://$KV_NAME.vault.azure.net/secrets/quiz-tls-key?api-version=7.4" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])" \
-  > /etc/ssl/private/quiz-app.key
-
-chmod 600 /etc/ssl/private/quiz-app.key
-echo "TLS certificate and key retrieved from Key Vault."
-
-echo "==> Configuring nginx for ${domain}..."
+echo "==> Configuring nginx on port 80 (temporary, before cert)..."
 cat > /etc/nginx/sites-available/quiz-app <<'NGINX_EOF'
 server {
-    listen 443 ssl;
+    listen 80;
     server_name ${domain};
-
-    ssl_certificate     /etc/ssl/certs/quiz-app.crt;
-    ssl_certificate_key /etc/ssl/private/quiz-app.key;
-    ssl_protocols       TLSv1.2 TLSv1.3;
-    ssl_ciphers         HIGH:!aNULL:!MD5;
 
     location / {
         proxy_pass         http://127.0.0.1:5000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
     }
-}
-
-server {
-    listen 80;
-    server_name ${domain};
-    return 301 https://$host$request_uri;
 }
 NGINX_EOF
 
@@ -124,5 +88,26 @@ ln -sf /etc/nginx/sites-available/quiz-app /etc/nginx/sites-enabled/quiz-app
 rm -f /etc/nginx/sites-enabled/default
 nginx -t
 systemctl restart nginx
+
+echo "==> Waiting for DNS: ${domain} to resolve to this VM..."
+i=0
+until curl -sf --max-time 5 "http://${domain}" >/dev/null 2>&1; do
+    i=$((i+1))
+    echo "Attempt $i — DNS not resolving yet, retrying in 30s..."
+    sleep 30
+done
+echo "DNS resolving after $i attempt(s)."
+
+echo "==> Obtaining Let's Encrypt certificate for ${domain}..."
+certbot --nginx \
+    --non-interactive \
+    --agree-tos \
+    --email admin@${domain} \
+    -d ${domain} \
+    --redirect
+
+echo "==> Enabling certbot auto-renewal..."
+systemctl enable certbot.timer
+systemctl start certbot.timer
 
 echo "==> Setup complete. App running at https://${domain}"

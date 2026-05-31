@@ -31,12 +31,14 @@ output "setup_log" {
 output "ACTION_REQUIRED" {
   description = "Steps after deployment"
   value       = <<-EOT
-    1. Point DNS: create A record ${var.domain} → ${azurerm_public_ip.app.ip_address}
+    1. Point DNS IMMEDIATELY after deploy:
+       Create A record: ${var.domain} → ${azurerm_public_ip.app.ip_address}
+       (The VM setup script waits for this before running certbot)
 
     2. Add redirect URI to Entra app registration:
        https://${var.domain}/auth/callback
 
-    3. Monitor VM setup (~5-10 min):
+    3. Monitor VM setup (waits for DNS, then runs certbot):
        ssh ${data.azurerm_key_vault_secret.admin_username.value}@${azurerm_public_ip.app.ip_address} 'tail -f /var/log/app-setup.log'
 
     4. Import question data (after setup complete):
